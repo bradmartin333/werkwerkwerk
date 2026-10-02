@@ -14,8 +14,6 @@ import (
 	"time"
 
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/gofont/gomono"
-	"golang.org/x/image/font/gofont/gomonobold"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 	"golang.org/x/image/vector"
@@ -142,27 +140,33 @@ func plural(n int) string {
 
 func drawChart(w io.Writer, title, subtitle, unit string, zeroLine bool, all []series) error {
 	c := newCanvas(plotW, plotH)
-	titleFace, err := face(gomonobold.TTF, 34)
+	// Same pixel font as the app. It has no bold, so hierarchy comes from
+	// size and ink.
+	vt323, err := staticFS.ReadFile("static/VT323-Regular.ttf")
 	if err != nil {
 		return err
 	}
-	textFace, _ := face(gomono.TTF, 20)
-	labelFace, _ := face(gomonobold.TTF, 20)
+	titleFace, err := face(vt323, 52)
+	if err != nil {
+		return err
+	}
+	textFace, _ := face(vt323, 28)
+	labelFace, _ := face(vt323, 32)
 
 	// Window chrome to match the app: black frame with a hard drop shadow.
 	c.rect(14, 14, plotW-4, plotH-4, inkPrimary)
 	c.rect(4, 4, plotW-14, plotH-14, inkPrimary)
 	c.rect(8, 8, plotW-18, plotH-18, paper)
 
-	c.text(titleFace, 48, 70, title, inkPrimary)
-	c.text(textFace, 48, 104, subtitle, inkSecondary)
+	c.text(titleFace, 48, 74, title, inkPrimary)
+	c.text(textFace, 48, 106, subtitle, inkSecondary)
 
 	// Legend: swatch + name, always present for 2+ series.
 	lx := 48.0
 	if len(all) > 1 {
 		for i, s := range all {
-			c.rect(lx, 128, lx+22, 140, colorFor(i))
-			c.text(textFace, lx+30, 141, s.label, inkPrimary)
+			c.rect(lx, 131, lx+22, 143, colorFor(i))
+			c.text(textFace, lx+30, 145, s.label, inkPrimary)
 			lx += 30 + c.measure(textFace, s.label) + 30
 		}
 	}
@@ -215,7 +219,7 @@ func drawChart(w io.Writer, title, subtitle, unit string, zeroLine bool, all []s
 		if zeroLine && t > 0 {
 			lbl = "+" + lbl
 		}
-		c.text(textFace, left-14-c.measure(textFace, lbl), y(t)+7, lbl, inkSecondary)
+		c.text(textFace, left-14-c.measure(textFace, lbl), y(t)+6, lbl, inkSecondary)
 	}
 	c.rect(left, bottom-1, right, bottom+1, axis)
 
@@ -265,8 +269,8 @@ func drawChart(w io.Writer, title, subtitle, unit string, zeroLine bool, all []s
 		if math.Abs(e.y-e.dotY) > 2 || e.dotX < right-1 {
 			c.polyline([][2]float64{{e.dotX + 10, e.dotY}, {lx - 6, e.y}}, 1.5, axis)
 		}
-		c.text(labelFace, lx, e.y+7, e.s.end, inkPrimary)
-		c.text(textFace, lx+c.measure(labelFace, e.s.end), e.y+7, " "+e.s.label, inkSecondary)
+		c.text(labelFace, lx, e.y+8, e.s.end, inkPrimary)
+		c.text(textFace, lx+c.measure(labelFace, e.s.end), e.y+8, " "+e.s.label, inkSecondary)
 	}
 
 	return png.Encode(w, c.img)
