@@ -1,0 +1,71 @@
+{{define "login"}}{{template "top"}}
+{{template "win" "WERK.EXE"}}
+  <h1>Log in<span class="blink">_</span></h1>
+  {{if .}}<p class="err">{{.}}</p>{{end}}
+  <form method="post" action="/login">
+    <label for="name">Name</label>
+    <input id="name" name="name" autocapitalize="none" autocorrect="off" autocomplete="username" required>
+    <label for="pw">Password</label>
+    <input id="pw" name="password" type="password" autocomplete="current-password" required>
+    <button>Enter</button>
+  </form>
+{{template "/win"}}
+{{template "bottom"}}{{end}}
+
+{{define "setup"}}{{template "top"}}
+{{template "win" "NEW PLAYER"}}
+  <h1>Hi {{.User.Name}}!</h1>
+  <p>Pick your 3 workouts. Choose wisely &mdash; these are locked in for the whole challenge.</p>
+  {{if .Error}}<p class="err">{{.Error}}</p>{{end}}
+  <form method="post" action="/setup">
+    <label for="w1">Workout 1</label>
+    <input id="w1" name="w1" maxlength="40" placeholder="push-ups" required>
+    <label for="w2">Workout 2</label>
+    <input id="w2" name="w2" maxlength="40" placeholder="squats" required>
+    <label for="w3">Workout 3</label>
+    <input id="w3" name="w3" maxlength="40" placeholder="sit-ups" required>
+    <button>Lock it in</button>
+  </form>
+{{template "/win"}}
+{{template "bottom" .User}}{{end}}
+
+{{define "entry"}}{{template "top"}}
+{{if .EndSet}}
+{{template "win" "COUNTDOWN"}}
+  <div class="ticker">
+    {{if eq .DaysLeft 0}}<span>Last day!</span><b class="blink">!!!</b>
+    {{else}}<span>Days left</span><b>{{.DaysLeft}}</b>{{end}}
+  </div>
+{{template "/win"}}
+{{end}}
+{{template "win" "TODAY"}}
+  <h1>{{if .Logged}}Update today{{else}}Log today{{end}}</h1>
+  <form method="post" action="/entry">
+    {{range $i, $r := .Rows}}
+    <label for="r{{$i}}">{{$r.Name}}</label>
+    <select id="r{{$i}}" name="r{{inc $i}}">
+      {{range $.Options}}<option{{if eq . $r.Value}} selected{{end}}>{{.}}</option>{{end}}
+    </select>
+    {{end}}
+    <button>{{if .Logged}}Save{{else}}Submit{{end}}</button>
+  </form>
+{{template "/win"}}
+{{template "bottom" .User}}{{end}}
+
+{{define "result"}}{{template "top"}}
+<script>history.replaceState(null, "", "/")</script>
+{{template "win" "SAVED"}}
+  <p class="center">SINCE DAY 1</p>
+  <div class="big">{{pct .Pct}}</div>
+  <p class="center dim">{{.Days}} day{{if ne .Days 1}}s{{end}} logged{{if .EndSet}} &middot; {{if eq .DaysLeft 0}}last day{{else}}{{.DaysLeft}} to go{{end}}{{end}}</p>
+  <a class="btn" href="/">Back</a>
+{{template "/win"}}
+{{template "bottom" .User}}{{end}}
+
+{{define "final"}}{{template "top"}}
+{{template "win" "GAME OVER"}}
+  <p class="center">CHALLENGE COMPLETE</p>
+  <div class="big">{{pct .Pct}}</div>
+  <p class="center dim">{{.Days}} day{{if ne .Days 1}}s{{end}} logged</p>
+{{template "/win"}}
+{{template "bottom" .User}}{{end}}
