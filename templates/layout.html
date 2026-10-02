@@ -7,9 +7,13 @@
 <meta name="apple-mobile-web-app-title" content="WERK">
 <meta name="theme-color" content="#000000">
 <title>WERK</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&display=swap">
+<link rel="preload" href="/static/VT323-Regular.ttf" as="font" type="font/ttf" crossorigin>
 <style>
+  @font-face {
+    font-family: "VT323";
+    src: url("/static/VT323-Regular.ttf") format("truetype");
+    font-display: swap;
+  }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body {

@@ -2,8 +2,9 @@
 
 A tiny workout challenge. Go + SQLite in one container.
 
-Reps are 5–200. Progress = average across the 3 workouts of the % change from
-the first logged day to the most recent one. Only today's entry is editable;
+Reps are 5–500. Progress = average across the 3 workouts of the % change from
+the first logged day to the average of the last 3 logged days, so one off day
+doesn't sink your number. Only today's entry is editable;
 missed days are just gaps. The day rolls over at midnight in `$TZ`.
 
 ## Deploy
@@ -70,6 +71,12 @@ docker run --rm -v /srv/docker-data/werk:/data -e WERK_DB=/data/werk-20261130-09
 
 ```
 docker build -t werk . && docker run -p 8080:8080 -e TZ=America/New_York werk
+```
+
+## Tests
+
+```
+docker run --rm -v "$PWD":/src -w /src golang:1.26-alpine go test ./...
 ```
 
 ## Screenshots

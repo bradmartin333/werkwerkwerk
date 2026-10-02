@@ -25,12 +25,16 @@ import (
 //go:embed templates/*.html
 var tmplFS embed.FS
 
+//go:embed static
+var staticFS embed.FS
+
 const (
 	minReps     = 5
-	maxReps     = 200
+	maxReps     = 500
 	sessionName = "werk"
 	sessionTTL  = 365 * 24 * time.Hour
 	dayFmt      = "2006-01-02"
+	scoreWindow = 3 // recent days averaged for the score
 )
 
 var (
@@ -74,12 +78,7 @@ func main() {
 	if path == "" {
 		path = "werk.db"
 	}
-	var err error
-	db, err = sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
-	if err != nil {
-		log.Fatal(err)
-	}
-	if _, err := db.Exec(schema); err != nil {
+	if err := openDB(path); err != nil {
 		log.Fatal(err)
 	}
 
@@ -92,6 +91,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+func openDB(path string) error {
+	var err error
+	db, err = sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(schema)
+	return err
 }
 
 // ---------- CLI ----------
@@ -282,21 +291,41 @@ func daysLeft() (left int, set, over bool) {
 	return left, true, left < 0
 }
 
-// progress is the mean, across the three workouts, of the % change from the
-// first logged day to the most recent one. Averaging percentages keeps a
-// 150-rep workout from drowning out a 10-rep one.
+// score is the mean, across the three workouts, of the % change from the
+// first entry to the average of the last scoreWindow entries (oldest first).
+// Averaging percentages keeps a 150-rep workout from drowning out a 10-rep
+// one, and the window keeps one off day from sinking the number.
+func score(entries [][3]int) float64 {
+	if len(entries) == 0 {
+		return 0
+	}
+	recent := entries[max(0, len(entries)-scoreWindow):]
+	var pct float64
+	for i := range 3 {
+		sum := 0
+		for _, e := range recent {
+			sum += e[i]
+		}
+		avg := float64(sum) / float64(len(recent))
+		pct += (avg - float64(entries[0][i])) / float64(entries[0][i]) * 100 // >= minReps, never 0
+	}
+	return pct / 3
+}
+
+// progress is a user's score and number of days logged.
 func progress(uid int64) (pct float64, days int) {
-	var first, last [3]int
-	q := `SELECT r1, r2, r3 FROM entries WHERE user_id = ? ORDER BY day `
-	if db.QueryRow(q+"ASC LIMIT 1", uid).Scan(&first[0], &first[1], &first[2]) != nil {
+	rows, err := db.Query(`SELECT r1, r2, r3 FROM entries WHERE user_id = ? ORDER BY day`, uid)
+	if err != nil {
 		return 0, 0
 	}
-	db.QueryRow(q+"DESC LIMIT 1", uid).Scan(&last[0], &last[1], &last[2])
-	db.QueryRow(`SELECT COUNT(*) FROM entries WHERE user_id = ?`, uid).Scan(&days)
-	for i := range first {
-		pct += float64(last[i]-first[i]) / float64(first[i]) * 100 // first[i] >= minReps, never 0
+	defer rows.Close()
+	var es [][3]int
+	for rows.Next() {
+		var e [3]int
+		rows.Scan(&e[0], &e[1], &e[2])
+		es = append(es, e)
 	}
-	return pct / 3, days
+	return score(es), len(es)
 }
 
 type standing struct {
@@ -335,6 +364,15 @@ func standings() []standing {
 // ---------- web ----------
 
 func serve() {
+	addr := os.Getenv("WERK_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	log.Printf("werk listening on %s (tz %s)", addr, time.Local)
+	log.Fatal(http.ListenAndServe(addr, routes()))
+}
+
+func routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) { render(w, "login", nil) })
 	mux.HandleFunc("POST /login", login)
@@ -343,13 +381,12 @@ func serve() {
 	mux.HandleFunc("POST /setup", auth(setup))
 	mux.HandleFunc("POST /entry", auth(entry))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
-
-	addr := os.Getenv("WERK_ADDR")
-	if addr == "" {
-		addr = ":8080"
-	}
-	log.Printf("werk listening on %s (tz %s)", addr, time.Local)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	static := http.FileServerFS(staticFS)
+	mux.Handle("GET /static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		static.ServeHTTP(w, r)
+	}))
+	return mux
 }
 
 func render(w http.ResponseWriter, name string, data any) {

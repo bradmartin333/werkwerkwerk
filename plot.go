@@ -62,7 +62,7 @@ func plotAll(w io.Writer) error {
 	}
 	defer rows.Close()
 	var all []series
-	var first [3]int
+	var es [][3]int
 	for rows.Next() {
 		var name, day string
 		var r [3]int
@@ -71,15 +71,12 @@ func plotAll(w io.Writer) error {
 		}
 		if len(all) == 0 || all[len(all)-1].label != name {
 			all = append(all, series{label: name})
-			first = r
+			es = nil
 		}
-		var pct float64
-		for i := range r {
-			pct += float64(r[i]-first[i]) / float64(first[i]) * 100
-		}
+		es = append(es, r)
 		d, _ := time.Parse(dayFmt, day)
 		s := &all[len(all)-1]
-		s.pts = append(s.pts, point{d, pct / 3})
+		s.pts = append(s.pts, point{d, score(es)})
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -90,7 +87,7 @@ func plotAll(w io.Writer) error {
 	for i := range all {
 		all[i].end = fmt.Sprintf("%+.1f%%", all[i].pts[len(all[i].pts)-1].v)
 	}
-	return drawChart(w, "WERK // PROGRESS", "avg % change since each player's day 1", "%", true, all)
+	return drawChart(w, "WERK // PROGRESS", "% change from day 1 to the average of the last 3 days logged", "%", true, all)
 }
 
 // plotUser charts one user's raw reps for each of their three workouts.
