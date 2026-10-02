@@ -1,0 +1,4 @@
+# Never diff, merge or line-ending-convert images.
+*.png binary
+*.jpg binary
+*.gif binary

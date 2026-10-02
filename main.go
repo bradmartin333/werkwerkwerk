@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -102,7 +103,11 @@ const usage = `werk commands:
   werk passwd  <name> <pass>    reset a password
   werk deluser <name>           delete a user and ALL their data
   werk enddate <YYYY-MM-DD>     set the last day of the challenge
-  werk enddate none             clear the end date`
+  werk enddate none             clear the end date
+  werk standings                print everyone's % change
+  werk plot [name] > out.png    PNG of everyone's progress, or one user's reps
+  werk reset --yes              back up the db, then wipe entries, workouts and
+                                end date for a new challenge (keeps users)`
 
 func runCLI(args []string) error {
 	need := func(n int) error {
@@ -176,8 +181,62 @@ func runCLI(args []string) error {
 			fmt.Println("end date:", args[1])
 		}
 		return err
+	case "standings":
+		for i, s := range standings() {
+			fmt.Printf("%2d. %-12s %8s  %3d days\n", i+1, s.Name, fmt.Sprintf("%+.1f%%", s.Pct), s.Days)
+		}
+		return nil
+	case "plot":
+		if len(args) > 2 {
+			return errors.New("wrong number of args\n\n" + usage)
+		}
+		if fi, _ := os.Stdout.Stat(); fi != nil && fi.Mode()&os.ModeCharDevice != 0 {
+			return errors.New("redirect the PNG to a file: docker exec werk /werk plot > progress.png (no -t)")
+		}
+		if len(args) == 2 {
+			return plotUser(os.Stdout, normName(args[1]))
+		}
+		return plotAll(os.Stdout)
+	case "reset":
+		if len(args) != 2 || args[1] != "--yes" {
+			return errors.New("this wipes every entry, workout and the end date (users and passwords stay).\nrun `werk reset --yes` to do it")
+		}
+		return reset()
 	}
 	return errors.New(usage)
+}
+
+// reset snapshots the db next to itself, then clears everything but the
+// accounts so everyone picks new workouts on their next visit.
+func reset() error {
+	path := os.Getenv("WERK_DB")
+	if path == "" {
+		path = "werk.db"
+	}
+	backup := strings.TrimSuffix(path, ".db") + "-" + time.Now().Format("20060102-150405") + ".db"
+	if _, err := db.Exec(`VACUUM INTO ?`, backup); err != nil {
+		return fmt.Errorf("backup failed, nothing reset: %w", err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`DELETE FROM entries`,
+		`UPDATE users SET w1 = NULL, w2 = NULL, w3 = NULL`,
+		`DELETE FROM settings WHERE key = 'end_date'`,
+	} {
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	fmt.Println("backed up to", backup)
+	fmt.Println("reset: entries, workouts and end date cleared. set a new one with `werk enddate`.")
+	return nil
 }
 
 func mustAffect(res sql.Result, err error) error {
@@ -238,6 +297,39 @@ func progress(uid int64) (pct float64, days int) {
 		pct += float64(last[i]-first[i]) / float64(first[i]) * 100 // first[i] >= minReps, never 0
 	}
 	return pct / 3, days
+}
+
+type standing struct {
+	Name string
+	Pct  float64
+	Days int
+}
+
+// standings lists everyone with at least one entry, best progress first.
+func standings() []standing {
+	rows, err := db.Query(`SELECT id, name FROM users ORDER BY name`)
+	if err != nil {
+		return nil
+	}
+	type idName struct {
+		id   int64
+		name string
+	}
+	var us []idName
+	for rows.Next() {
+		var u idName
+		rows.Scan(&u.id, &u.name)
+		us = append(us, u)
+	}
+	rows.Close()
+	var out []standing
+	for _, u := range us {
+		if pct, days := progress(u.id); days > 0 {
+			out = append(out, standing{u.name, pct, days})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Pct > out[j].Pct })
+	return out
 }
 
 // ---------- web ----------
@@ -333,6 +425,7 @@ type homeData struct {
 	Pct      float64
 	Days     int
 	Error    string
+	Standing []standing
 }
 
 func home(w http.ResponseWriter, r *http.Request, u *user) {
@@ -343,7 +436,7 @@ func home(w http.ResponseWriter, r *http.Request, u *user) {
 	left, set, over := daysLeft()
 	if over {
 		pct, days := progress(u.ID)
-		render(w, "final", homeData{User: u, Pct: pct, Days: days})
+		render(w, "final", homeData{User: u, Pct: pct, Days: days, Standing: standings()})
 		return
 	}
 	// Prefill with today's entry, else the last one, so the wheel starts near

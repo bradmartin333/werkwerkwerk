@@ -68,4 +68,13 @@
   <div class="big">{{pct .Pct}}</div>
   <p class="center dim">{{.Days}} day{{if ne .Days 1}}s{{end}} logged</p>
 {{template "/win"}}
+{{if .Standing}}
+{{template "win" "STANDINGS"}}
+  <ol class="board">
+    {{range $i, $s := .Standing}}
+    <li{{if eq $s.Name $.User.Name}} class="me"{{end}}><span>{{inc $i}}. {{$s.Name}}</span><b>{{pct $s.Pct}}</b></li>
+    {{end}}
+  </ol>
+{{template "/win"}}
+{{end}}
 {{template "bottom" .User}}{{end}}
